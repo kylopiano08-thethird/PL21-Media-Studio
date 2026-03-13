@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Use gif.js which we know works with proper worker configuration -->
+    <!-- Use a more reliable GIF library -->
     <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -361,7 +361,7 @@
         })();
     </script>
 
-    <!-- ========== ANIMATED GRAPHICS WITH WORKING GIF DOWNLOAD ========== -->
+    <!-- ========== COMPLETE ANIMATED GRAPHICS WITH ALL FOUR TYPES ========== -->
     <script>
         (function() {
             const canvas = document.getElementById('unified-canvas');
@@ -1437,43 +1437,7 @@
                 }
             }
 
-            // ========== GIF DOWNLOAD USING GIPHY ENCODER ==========
-            // Simple GIF encoder implementation
-            class SimpleGIFEncoder {
-                constructor(width, height) {
-                    this.width = width;
-                    this.height = height;
-                    this.frames = [];
-                    this.delay = 10; // default 100ms
-                }
-                
-                setDelay(delay) {
-                    this.delay = Math.floor(delay / 10); // convert to 1/100th seconds
-                }
-                
-                setRepeat(repeat) {
-                    this.repeat = repeat;
-                }
-                
-                addFrame(imageData) {
-                    this.frames.push({
-                        data: new Uint8ClampedArray(imageData),
-                        delay: this.delay
-                    });
-                }
-                
-                finish() {
-                    // This is a simplified version - in reality we'd need a full GIF encoder
-                    // For now, we'll use a fallback
-                    console.log('GIF encoding would happen here');
-                }
-                
-                getData() {
-                    return new Uint8Array(0);
-                }
-            }
-
-            // Use gif.js which we know works with the right worker setup
+            // ========== GIF DOWNLOAD ==========
             async function downloadAsGif() {
                 if (!selectedDriver || selectedRound === null) {
                     alert('Please select a driver and round first');
@@ -1490,8 +1454,8 @@
                 const originalPhase = phase;
 
                 try {
-                    // Sample frames (every 8 frames for smaller file)
-                    const frameStep = 8;
+                    // Use fewer frames for smaller GIF (every 15 frames)
+                    const frameStep = 15;
                     const totalFrames = Math.floor((SWEEP_FRAMES + FADE_FRAMES + RED_FRAMES) / frameStep);
                     
                     // Create GIF instance
@@ -1525,7 +1489,11 @@
                         await updatePreview();
                         
                         // Add frame to GIF
-                        gif.addFrame(canvas, { copy: true, delay: 10 });
+                        gif.addFrame(canvas, { 
+                            copy: true, 
+                            delay: 20, // 200ms per frame = 5fps
+                            dispose: 1
+                        });
                         
                         // Small delay to prevent browser from freezing
                         await new Promise(resolve => setTimeout(resolve, 5));
@@ -1558,17 +1526,24 @@
 
                     gif.on('error', (error) => {
                         console.error('GIF creation failed:', error);
-                        throw new Error('GIF creation failed');
+                        alert('GIF creation failed. Please try with PNG instead.');
+                        
+                        // Restore original animation state
+                        lightPhase = originalLightPhase;
+                        lightTimer = originalLightTimer;
+                        phase = originalPhase;
+                        updatePreview();
+                        
+                        downloadGifBtn.disabled = false;
+                        downloadGifBtn.textContent = '🎞️ Download GIF';
+                        gifProgress.style.display = 'none';
                     });
 
                     gif.render();
 
                 } catch (error) {
                     console.error('GIF creation failed:', error);
-                    alert('GIF creation failed. Using PNG instead.');
-                    
-                    // Fallback to PNG
-                    downloadAsPng();
+                    alert('GIF creation failed. Please try with PNG instead.');
                     
                     // Restore original animation state
                     lightPhase = originalLightPhase;
