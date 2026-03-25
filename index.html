@@ -7,8 +7,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Use a more reliable GIF library -->
-    <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -123,7 +121,7 @@
             color: #ccc;
             border-color: rgba(255,255,255,0.05);
         }
-        .gif-progress {
+        .recording-progress {
             position: absolute;
             bottom: 10px;
             left: 50%;
@@ -177,13 +175,13 @@
                     <h3 id="preview-title">Preview · Fastest Lap</h3>
                     <div class="preview-actions">
                         <button class="preview-btn" id="download-png-btn">📸 Download PNG</button>
-                        <button class="preview-btn" id="download-gif-btn">🎞️ Download GIF</button>
+                        <button class="preview-btn" id="download-webm-btn">🎞️ Download WebM</button>
                         <button class="preview-btn" id="copy-btn">📋 Copy</button>
                     </div>
                 </div>
                 <div class="preview-area">
                     <canvas id="unified-canvas" width="1000" height="220" class="canvas-landscape"></canvas>
-                    <div class="gif-progress" id="gif-progress">Rendering GIF: 0%</div>
+                    <div class="recording-progress" id="recording-progress">Recording: 0%</div>
                 </div>
             </div>
         </div>
@@ -361,7 +359,7 @@
         })();
     </script>
 
-    <!-- ========== COMPLETE ANIMATED GRAPHICS WITH ALL FOUR TYPES ========== -->
+    <!-- ========== COMPLETE ANIMATED GRAPHICS ========== -->
     <script>
         (function() {
             const canvas = document.getElementById('unified-canvas');
@@ -383,6 +381,7 @@
             const SWEEP_FRAMES = 720;  // 12 seconds
             const FADE_FRAMES = 60;     // 1 second
             const RED_FRAMES = 240;     // 4 seconds
+            const TOTAL_FRAMES = SWEEP_FRAMES + FADE_FRAMES + RED_FRAMES; // 1020 frames = 17 seconds
             
             // State
             let selectedDriver = null;
@@ -396,9 +395,9 @@
             const controlPanel = document.getElementById('control-panel');
             const previewTitle = document.getElementById('preview-title');
             const downloadPngBtn = document.getElementById('download-png-btn');
-            const downloadGifBtn = document.getElementById('download-gif-btn');
+            const downloadWebmBtn = document.getElementById('download-webm-btn');
             const copyBtn = document.getElementById('copy-btn');
-            const gifProgress = document.getElementById('gif-progress');
+            const recordingProgress = document.getElementById('recording-progress');
 
             // Animation loop
             function startAnimation() {
@@ -1437,16 +1436,16 @@
                 }
             }
 
-            // ========== GIF DOWNLOAD ==========
-            async function downloadAsGif() {
+            // ========== FIXED WEBM RECORDING ==========
+            async function recordAsWebM() {
                 if (!selectedDriver || selectedRound === null) {
                     alert('Please select a driver and round first');
                     return;
                 }
 
-                downloadGifBtn.disabled = true;
-                downloadGifBtn.textContent = '🎞️ Rendering...';
-                gifProgress.style.display = 'block';
+                downloadWebmBtn.disabled = true;
+                downloadWebmBtn.textContent = '🎞️ Recording...';
+                recordingProgress.style.display = 'block';
 
                 // Store original animation state
                 const originalLightPhase = lightPhase;
@@ -1454,96 +1453,93 @@
                 const originalPhase = phase;
 
                 try {
-                    // Use fewer frames for smaller GIF (every 15 frames)
-                    const frameStep = 15;
-                    const totalFrames = Math.floor((SWEEP_FRAMES + FADE_FRAMES + RED_FRAMES) / frameStep);
+                    // Create a media stream from the canvas at 60fps to match animation
+                    const stream = canvas.captureStream(60);
                     
-                    // Create GIF instance
-                    const gif = new GIF({
-                        workers: 2,
-                        quality: 10,
-                        width: canvas.width,
-                        height: canvas.height,
-                        workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+                    // Set up media recorder with high quality settings
+                    const mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: 'video/webm;codecs=vp9',
+                        videoBitsPerSecond: 8000000 // 8 Mbps for best quality
                     });
-
-                    // Capture frames
-                    for (let frame = 0; frame < totalFrames; frame++) {
-                        const progress = Math.round((frame / totalFrames) * 100);
-                        gifProgress.textContent = `Rendering GIF: ${progress}%`;
-
-                        // Calculate actual frame position
-                        const actualFrame = frame * frameStep;
-                        
-                        if (actualFrame < SWEEP_FRAMES) {
-                            lightPhase = PHASE_SWEEP;
-                            lightTimer = actualFrame;
-                        } else if (actualFrame < SWEEP_FRAMES + FADE_FRAMES) {
-                            lightPhase = PHASE_FADE;
-                            lightTimer = actualFrame - SWEEP_FRAMES;
-                        } else {
-                            lightPhase = PHASE_RED;
-                            lightTimer = actualFrame - SWEEP_FRAMES - FADE_FRAMES;
+                    
+                    const chunks = [];
+                    
+                    mediaRecorder.ondataavailable = (e) => {
+                        if (e.data.size > 0) {
+                            chunks.push(e.data);
                         }
-
-                        await updatePreview();
-                        
-                        // Add frame to GIF
-                        gif.addFrame(canvas, { 
-                            copy: true, 
-                            delay: 20, // 200ms per frame = 5fps
-                            dispose: 1
-                        });
-                        
-                        // Small delay to prevent browser from freezing
-                        await new Promise(resolve => setTimeout(resolve, 5));
-                    }
-
-                    // Restore original animation state
-                    lightPhase = originalLightPhase;
-                    lightTimer = originalLightTimer;
-                    phase = originalPhase;
-                    await updatePreview();
-
-                    // Render GIF
-                    gif.on('progress', (p) => {
-                        gifProgress.textContent = `Rendering GIF: ${Math.round(p * 100)}%`;
-                    });
-
-                    gif.on('finished', (blob) => {
+                    };
+                    
+                    mediaRecorder.onstop = () => {
+                        const blob = new Blob(chunks, { type: 'video/webm' });
                         const url = URL.createObjectURL(blob);
                         const link = document.createElement('a');
-                        link.download = `pl21_${currentTab}_${selectedDriver.replace(/\s+/g, '_')}_Round${selectedRound + 1}.gif`;
+                        link.download = `pl21_${currentTab}_${selectedDriver.replace(/\s+/g, '_')}_Round${selectedRound + 1}.webm`;
                         link.href = url;
                         link.click();
-                        
                         URL.revokeObjectURL(url);
                         
-                        downloadGifBtn.disabled = false;
-                        downloadGifBtn.textContent = '🎞️ Download GIF';
-                        gifProgress.style.display = 'none';
-                    });
-
-                    gif.on('error', (error) => {
-                        console.error('GIF creation failed:', error);
-                        alert('GIF creation failed. Please try with PNG instead.');
+                        downloadWebmBtn.disabled = false;
+                        downloadWebmBtn.textContent = '🎞️ Download WebM';
+                        recordingProgress.style.display = 'none';
                         
                         // Restore original animation state
                         lightPhase = originalLightPhase;
                         lightTimer = originalLightTimer;
                         phase = originalPhase;
                         updatePreview();
+                    };
+                    
+                    // Start recording
+                    mediaRecorder.start();
+                    
+                    // Calculate total frames and timing
+                    const totalFrames = TOTAL_FRAMES;
+                    const frameDuration = 1000 / 60; // 16.67ms per frame at 60fps
+                    
+                    // Update progress
+                    const startTime = Date.now();
+                    const progressInterval = setInterval(() => {
+                        const elapsed = Date.now() - startTime;
+                        const progress = Math.min(100, Math.round((elapsed / (totalFrames * frameDuration)) * 100));
+                        recordingProgress.textContent = `Recording: ${progress}%`;
                         
-                        downloadGifBtn.disabled = false;
-                        downloadGifBtn.textContent = '🎞️ Download GIF';
-                        gifProgress.style.display = 'none';
-                    });
-
-                    gif.render();
-
+                        if (progress >= 100) {
+                            clearInterval(progressInterval);
+                        }
+                    }, 100);
+                    
+                    // Run through the animation at full speed
+                    for (let frame = 0; frame < totalFrames; frame++) {
+                        // Update animation state exactly as the real animation would
+                        if (frame < SWEEP_FRAMES) {
+                            lightPhase = PHASE_SWEEP;
+                            lightTimer = frame;
+                        } else if (frame < SWEEP_FRAMES + FADE_FRAMES) {
+                            lightPhase = PHASE_FADE;
+                            lightTimer = frame - SWEEP_FRAMES;
+                        } else {
+                            lightPhase = PHASE_RED;
+                            lightTimer = frame - SWEEP_FRAMES - FADE_FRAMES;
+                        }
+                        
+                        // Update phase for pulsing effects (matches the 0.002 increment per frame)
+                        phase = frame * 0.002;
+                        
+                        // Render the frame
+                        await updatePreview();
+                        
+                        // Wait exactly 16.67ms to maintain 60fps
+                        await new Promise(resolve => setTimeout(resolve, frameDuration));
+                    }
+                    
+                    // Stop recording
+                    mediaRecorder.stop();
+                    stream.getTracks().forEach(track => track.stop());
+                    
                 } catch (error) {
-                    console.error('GIF creation failed:', error);
-                    alert('GIF creation failed. Please try with PNG instead.');
+                    console.error('Recording failed:', error);
+                    alert('Recording failed: ' + error.message);
                     
                     // Restore original animation state
                     lightPhase = originalLightPhase;
@@ -1551,9 +1547,9 @@
                     phase = originalPhase;
                     await updatePreview();
                     
-                    downloadGifBtn.disabled = false;
-                    downloadGifBtn.textContent = '🎞️ Download GIF';
-                    gifProgress.style.display = 'none';
+                    downloadWebmBtn.disabled = false;
+                    downloadWebmBtn.textContent = '🎞️ Download WebM';
+                    recordingProgress.style.display = 'none';
                 }
             }
 
@@ -1740,7 +1736,7 @@
 
             // ========== BUTTON EVENT LISTENERS ==========
             downloadPngBtn.addEventListener('click', downloadAsPng);
-            downloadGifBtn.addEventListener('click', downloadAsGif);
+            downloadWebmBtn.addEventListener('click', recordAsWebM);
             copyBtn.addEventListener('click', copyToClipboard);
 
             // ========== INITIALIZE ==========
