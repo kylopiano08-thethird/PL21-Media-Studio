@@ -2,22 +2,75 @@
 (function() {
     const SHEET_ID = '1ECRV_5PiAFGBx9lfgKU_ZYdRSgUG4OpTEm9YzrxBvMI';
     
+    // Proper CSV parser that handles all edge cases
     function parseCSV(csv) {
-        const lines = csv.split('\n').filter(l => l.trim());
-        if (lines.length < 2) return [];
-        
-        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
         const rows = [];
+        let currentRow = [];
+        let currentField = '';
+        let insideQuotes = false;
         
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(',').map(v => v.replace(/"/g, '').trim());
-            const row = {};
-            headers.forEach((header, index) => {
-                row[header] = values[index] || '';
-            });
-            rows.push(row);
+        for (let i = 0; i < csv.length; i++) {
+            const char = csv[i];
+            const nextChar = csv[i + 1];
+            
+            if (char === '"') {
+                if (insideQuotes) {
+                    if (nextChar === '"') {
+                        // Escaped quote
+                        currentField += '"';
+                        i++;
+                    } else {
+                        // End of quoted field
+                        insideQuotes = false;
+                    }
+                } else {
+                    // Start of quoted field
+                    insideQuotes = true;
+                }
+            } else if (char === ',' && !insideQuotes) {
+                // End of field
+                currentRow.push(currentField);
+                currentField = '';
+            } else if (char === '\n' && !insideQuotes) {
+                // End of row
+                currentRow.push(currentField);
+                if (currentRow.some(f => f.trim() !== '')) {
+                    rows.push(currentRow);
+                }
+                currentRow = [];
+                currentField = '';
+            } else if (char === '\r' && !insideQuotes) {
+                // Skip carriage return
+                // Do nothing
+            } else {
+                currentField += char;
+            }
         }
-        return rows;
+        
+        // Don't forget the last field and row
+        if (currentField || currentRow.length > 0) {
+            currentRow.push(currentField);
+            if (currentRow.some(f => f.trim() !== '')) {
+                rows.push(currentRow);
+            }
+        }
+        
+        if (rows.length < 2) return [];
+        
+        // First row is headers
+        const headers = rows[0].map(h => h.trim());
+        const data = [];
+        
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const obj = {};
+            headers.forEach((header, index) => {
+                obj[header] = row[index] || '';
+            });
+            data.push(obj);
+        }
+        
+        return data;
     }
 
     async function fetchSheetCSV(sheetName) {
@@ -79,7 +132,7 @@
     async function loadAllData() {
         console.log('Loading data...');
         
-        // Load Team Master - includes Logo from column G
+        // Load Team Master
         const teamSheet = await fetchSheetCSV('Team Master');
         
         if (teamSheet && teamSheet.length > 0) {
@@ -87,7 +140,6 @@
                 const teamName = row['Team Name'] || row['Team'] || '';
                 const primary = row['Primary Color'] || row['Primary'] || row['PrimaryColor'] || '';
                 const secondary = row['Secondary Color'] || row['Secondary'] || row['SecondaryColor'] || '';
-                // Column G - Logo
                 const logo = row['Logo'] || row['Team Logo'] || row['logo'] || row['Logo URL'] || row['LogoURL'] || '';
                 
                 if (teamName && primary) {
@@ -136,31 +188,28 @@
         
         console.log('Rounds loaded:', raceRounds.length, 'races,', sprintRounds.length, 'sprints');
 
-        // Load Driver Master - with separate F1 Photo and Roblox Headshot
+        // Load Driver Master
         const driverSheet = await fetchSheetCSV('Driver Master');
         const drivers = [];
         driverSheet.forEach((row) => {
             const name = row['Driver'] || row['Name'] || '';
             if (!name) return;
             
-            // Column I - Headshots (Roblox avatars) - ONLY used by Starting Grid
             const headshot = row['Headshot'] || row['Headshots'] || '';
-            
-            // Column for F1 Photos - used by Fastest Lap, DOTD, Pole, Winner
-            // Try different possible column names (adjust if your sheet uses a different header)
-            const f1Photo = row['F1 Photo'] || row['Photo'] || row['Driver Photo'] || row['Portrait'] || row['Image'] || '';
+            const f1Photo = row['F1 Photo'] || row['Photo'] || row['Driver Photo'] || row['Portrait'] || '';
             
             drivers.push({
                 name: name,
                 number: row['Number'] || row['Driver Number'] || '0',
                 defaultTeam: row['Team'] || row['Default Team'] || 'Unknown',
-                photo: f1Photo,        // F1 photo - used by Fastest Lap, DOTD, Pole, Winner
-                headshot: headshot,    // Roblox headshot - used ONLY by Starting Grid
+                photo: f1Photo,
+                headshot: headshot,
                 movement: {}
             });
         });
         
         console.log('Drivers loaded:', drivers.length);
+        console.log('Sample driver headshot:', drivers[0]?.headshot);
 
         // Load Driver Movement
         const movementSheet = await fetchSheetCSV('Driver Movement');
@@ -179,19 +228,12 @@
         window.PL21_DATA.raceRounds = raceRounds;
         window.PL21_DATA.sprintRounds = sprintRounds;
         
-        // Update UI
         document.getElementById('driver-count').textContent = drivers.length;
         document.getElementById('round-count').textContent = raceRounds.length + sprintRounds.length;
         document.getElementById('data-ready-badge').textContent = `loaded · ${drivers.length} drivers, ${raceRounds.length} races, ${sprintRounds.length} sprints`;
         
-        console.log('Data loading complete:', {
-            drivers: drivers.length,
-            raceRounds: raceRounds.length,
-            sprintRounds: sprintRounds.length,
-            teams: Object.keys(window.PL21_DATA.teamColors).length
-        });
+        console.log('Data loading complete');
         
-        // Dispatch event that data is ready
         window.dispatchEvent(new CustomEvent('pl21-data-ready'));
     }
 
